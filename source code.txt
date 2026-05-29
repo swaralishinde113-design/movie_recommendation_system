@@ -1,0 +1,15 @@
+movie-recommender/
+│
+├── data/
+│   ├── movies.csv
+│   ├── ratings.csv
+│   └── tags.csv
+│
+├── src/
+│   ├── content_based.py
+│   ├── collaborative.py
+│   ├── utils.py
+│   └── cli.py
+│
+├── requirements.txt
+└── README.md

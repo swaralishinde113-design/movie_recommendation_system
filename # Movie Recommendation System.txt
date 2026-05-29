@@ -1,0 +1,21 @@
+# Movie Recommendation System
+
+Developed a CLI-based Movie Recommendation System using Machine Learning techniques such as Collaborative Filtering and Content-Based Filtering. The system recommends movies based on user preferences, ratings, genres, and tags. Implemented cosine similarity, TF-IDF vectorization, and user-item similarity matrices to generate accurate movie recommendations.
+
+The project supports:
+
+* Movie-based recommendations
+* User-based recommendations
+* Top-N recommended movie suggestions
+* Content analysis using genres and tags
+
+Technologies used include Python, Pandas, NumPy, and Scikit-learn for data processing, similarity computation, and recommendation modeling.
+
+Key learning outcomes:
+
+* Recommendation system algorithms
+* Cosine similarity and Pearson correlation
+* TF-IDF and basic NLP techniques
+* User-item matrix creation
+* Data preprocessing with Pandas and NumPy
+* Real-world machine learning workflow

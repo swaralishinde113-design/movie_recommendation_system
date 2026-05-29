@@ -1,0 +1,382 @@
+1. Install Dependencies
+requirements.txt
+pandas
+numpy
+scikit-learn
+
+Install:
+
+pip install -r requirements.txt
+2. Download Dataset
+
+Download the MovieLens Dataset from:
+
+GroupLens MovieLens Downloads
+
+Use:
+
+ml-latest-small.zip
+
+Extract:
+
+movies.csv
+ratings.csv
+tags.csv
+
+into:
+
+data/
+3. content_based.py
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+
+class ContentBasedRecommender:
+
+    def __init__(self, movies_path, tags_path):
+
+        self.movies = pd.read_csv(movies_path)
+        self.tags = pd.read_csv(tags_path)
+
+        self.prepare_data()
+
+    def prepare_data(self):
+
+        # Group tags
+        tag_data = self.tags.groupby('movieId')['tag'].apply(
+            lambda x: " ".join(x.astype(str))
+        ).reset_index()
+
+        # Merge movies + tags
+        self.movies = self.movies.merge(
+            tag_data,
+            on='movieId',
+            how='left'
+        )
+
+        self.movies['tag'] = self.movies['tag'].fillna('')
+
+        # Combine genres + tags
+        self.movies['content'] = (
+            self.movies['genres'] + " " + self.movies['tag']
+        )
+
+        # TF-IDF Vectorization
+        tfidf = TfidfVectorizer(stop_words='english')
+
+        self.tfidf_matrix = tfidf.fit_transform(
+            self.movies['content']
+        )
+
+        # Cosine similarity
+        self.cosine_sim = cosine_similarity(
+            self.tfidf_matrix,
+            self.tfidf_matrix
+        )
+
+        # Movie title index mapping
+        self.indices = pd.Series(
+            self.movies.index,
+            index=self.movies['title']
+        ).drop_duplicates()
+
+    def recommend(self, movie_title, top_n=5):
+
+        if movie_title not in self.indices:
+            return ["Movie not found!"]
+
+        idx = self.indices[movie_title]
+
+        similarity_scores = list(
+            enumerate(self.cosine_sim[idx])
+        )
+
+        similarity_scores = sorted(
+            similarity_scores,
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        similarity_scores = similarity_scores[1:top_n+1]
+
+        movie_indices = [
+            i[0] for i in similarity_scores
+        ]
+
+        return self.movies['title'].iloc[
+            movie_indices
+        ].tolist()
+4. collaborative.py
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+
+class CollaborativeRecommender:
+
+    def __init__(self, movies_path, ratings_path):
+
+        self.movies = pd.read_csv(movies_path)
+        self.ratings = pd.read_csv(ratings_path)
+
+        self.prepare_data()
+
+    def prepare_data(self):
+
+        # User-Movie Matrix
+        self.user_movie_matrix = self.ratings.pivot_table(
+            index='userId',
+            columns='movieId',
+            values='rating'
+        ).fillna(0)
+
+        # User similarity matrix
+        self.user_similarity = cosine_similarity(
+            self.user_movie_matrix
+        )
+
+        self.user_similarity_df = pd.DataFrame(
+            self.user_similarity,
+            index=self.user_movie_matrix.index,
+            columns=self.user_movie_matrix.index
+        )
+
+    def recommend_movies(self, user_id, top_n=5):
+
+        if user_id not in self.user_movie_matrix.index:
+            return ["User ID not found!"]
+
+        # Similar users
+        similar_users = self.user_similarity_df[
+            user_id
+        ].sort_values(ascending=False)
+
+        similar_users = similar_users[1:6]
+
+        # Movies watched by target user
+        target_user_movies = set(
+            self.ratings[
+                self.ratings['userId'] == user_id
+            ]['movieId']
+        )
+
+        recommendations = {}
+
+        for sim_user_id, similarity_score in similar_users.items():
+
+            sim_user_movies = self.ratings[
+                self.ratings['userId'] == sim_user_id
+            ]
+
+            for _, row in sim_user_movies.iterrows():
+
+                movie_id = row['movieId']
+
+                if movie_id not in target_user_movies:
+
+                    if movie_id not in recommendations:
+                        recommendations[movie_id] = 0
+
+                    recommendations[movie_id] += (
+                        row['rating'] * similarity_score
+                    )
+
+        # Sort recommendations
+        recommended_movies = sorted(
+            recommendations.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:top_n]
+
+        movie_titles = []
+
+        for movie_id, _ in recommended_movies:
+
+            title = self.movies[
+                self.movies['movieId'] == movie_id
+            ]['title'].values
+
+            if len(title) > 0:
+                movie_titles.append(title[0])
+
+        return movie_titles
+5. utils.py
+import pandas as pd
+
+
+def get_top_rated_movies(ratings_path, movies_path, top_n=10):
+
+    ratings = pd.read_csv(ratings_path)
+    movies = pd.read_csv(movies_path)
+
+    avg_ratings = ratings.groupby(
+        'movieId'
+    )['rating'].mean().reset_index()
+
+    avg_ratings = avg_ratings.sort_values(
+        by='rating',
+        ascending=False
+    )
+
+    top_movies = avg_ratings.merge(
+        movies,
+        on='movieId'
+    )
+
+    return top_movies[['title', 'rating']].head(top_n)
+6. cli.py
+from content_based import ContentBasedRecommender
+from collaborative import CollaborativeRecommender
+from utils import get_top_rated_movies
+
+
+MOVIES_PATH = "../data/movies.csv"
+RATINGS_PATH = "../data/ratings.csv"
+TAGS_PATH = "../data/tags.csv"
+
+
+content_model = ContentBasedRecommender(
+    MOVIES_PATH,
+    TAGS_PATH
+)
+
+collab_model = CollaborativeRecommender(
+    MOVIES_PATH,
+    RATINGS_PATH
+)
+
+
+while True:
+
+    print("\n===== Movie Recommendation System =====")
+    print("1. Recommend Similar Movies")
+    print("2. Recommend Movies for User")
+    print("3. Show Top Rated Movies")
+    print("4. Exit")
+
+    choice = input("Enter choice: ")
+
+    if choice == '1':
+
+        movie_name = input(
+            "Enter exact movie title: "
+        )
+
+        recommendations = content_model.recommend(
+            movie_name
+        )
+
+        print("\nRecommended Movies:")
+
+        for i, movie in enumerate(recommendations, 1):
+            print(f"{i}. {movie}")
+
+    elif choice == '2':
+
+        try:
+            user_id = int(
+                input("Enter user ID: ")
+            )
+
+            recommendations = collab_model.recommend_movies(
+                user_id
+            )
+
+            print("\nRecommended Movies:")
+
+            for i, movie in enumerate(recommendations, 1):
+                print(f"{i}. {movie}")
+
+        except ValueError:
+            print("Invalid user ID!")
+
+    elif choice == '3':
+
+        top_movies = get_top_rated_movies(
+            RATINGS_PATH,
+            MOVIES_PATH
+        )
+
+        print("\nTop Rated Movies:\n")
+
+        for i, row in top_movies.iterrows():
+
+            print(
+                f"{i+1}. {row['title']} "
+                f"(Rating: {row['rating']:.2f})"
+            )
+
+    elif choice == '4':
+
+        print("Goodbye!")
+        break
+
+    else:
+        print("Invalid choice!")
+7. Run the Project
+
+Go to:
+
+cd src
+
+Run:
+
+python cli.py
+Example Output
+===== Movie Recommendation System =====
+
+1. Recommend Similar Movies
+2. Recommend Movies for User
+3. Show Top Rated Movies
+4. Exit
+
+Enter choice: 1
+
+Enter exact movie title: Toy Story (1995)
+
+Recommended Movies:
+1. Toy Story 2 (1999)
+2. Monsters, Inc. (2001)
+3. Finding Nemo (2003)
+4. Shrek (2001)
+5. Cars (2006)
+Concepts Used
+Content-Based Filtering
+
+Uses:
+
+Genres
+Tags
+TF-IDF
+
+TF-IDF formula:
+
+TF-IDF(t,d)=TF(t,d)×log(
+DF(t)
+N
+	​
+
+)
+
+Cosine Similarity
+
+cos(θ)=
+∥A∥∥B∥
+A⋅B
+	​
+
+
+Optional Improvements
+
+You can add:
+
+Fuzzy movie search
+Streamlit UI
+Matrix Factorization (SVD)
+Hybrid recommender
+Recommendation explanations
+Deep learning embeddings
+Resume Project Description
+
+Developed a CLI-based Movie Recommendation System using collaborative and content-based filtering techniques. Implemented TF-IDF vectorization, cosine similarity, and user-item recommendation models using Python, Pandas, NumPy, and Scikit-learn.
